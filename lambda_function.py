@@ -2,6 +2,7 @@ import boto3
 import os
 import sys
 import uuid
+import json 
 import numpy as np
 
 from urllib.parse import unquote_plus
@@ -9,8 +10,6 @@ from collections import namedtuple
 from operator import attrgetter
 
 s3_client = boto3.client('s3')
-
-Grid = namedtuple("Grid", ['grid', 'objective'])
 
 global SUDOKU_SIZE
 SUDOKU_SIZE = 9
@@ -24,9 +23,6 @@ def numberIs(i, cube_solution):
 		return np.sum(cube_solution, axis=0)
 	else:
 		return f'Error: Pleased enter a number between 0 and {SUDOKU_SIZE}'
-
-def calculateObjective(current_input_matrix):
-	return 100*np.sum(current_input_matrix>0)/(SUDOKU_SIZE**2)
 
 def propagateConstraint(current_input_matrix):
 	cube_solution = np.zeros((SUDOKU_SIZE, SUDOKU_SIZE, SUDOKU_SIZE)).astype(int)
@@ -89,37 +85,49 @@ def findNextGrids(cube_constraint, cube_solution, current_input_matrix):
 			grid_output = [current_input_matrix.copy() for i in possible_values]
 			for idx, value in enumerate(possible_values):
 				grid_output[idx][best_line_idx, best_col_idx] = value
-	return [Grid(grid=g, objective=calculateObjective(g)) for g in grid_output]
+	return grid_output
 
 
-def solve_sudoku(file_location):
-	with open(file_location, 'r') as input_data_file:
-		input_data = input_data_file.read()
-
-	lines = input_data.split('\n')
-	SUDOKU_SIZE = len(lines)
-	input_matrix = np.matrix([np.array(l.split(), dtype=int) for l in lines])
-	input_grid = [Grid(grid=input_matrix, objective=calculateObjective(input_matrix))]
+def solve_sudoku(grid_list):
 	counter = 0
-	while len(input_grid) > 0:
+	solution_found = False
+	while len(grid_list) > 0:
 		counter +=1
-		input_grid = sorted(input_grid, key=attrgetter('objective'))
-		current_input_grid = input_grid.pop()
-		if 0 in current_input_grid.grid:
-			#print(current_input_grid)
-			cube_constraint, cube_solution = propagateConstraint(current_input_grid.grid)
-			input_grid += findNextGrids(cube_constraint, cube_solution, current_input_grid.grid)
+		current_input_grid = grid_list.pop()
+		if counter % 1000 == 0:
+			print('Iterations:', counter)
+		if 0 in current_input_grid:
+			cube_constraint, cube_solution = propagateConstraint(current_input_grid)
+			grid_list += findNextGrids(cube_constraint, cube_solution, current_input_grid)
 		else:
+			solution_found = True
 			print(f'Solution found in {counter} iterations')
 			break
-	return current_input_grid.grid
+	return current_input_grid, solution_found
 	
 
 def lambda_handler(event, context):
-	for record in event['Records']:
-		bucket = record['s3']['bucket']['name']
-		key = unquote_plus(record['s3']['object']['key'])
-		tmpkey = key.replace('/', '')
-		download_path = '/tmp/{}{}'.format(uuid.uuid4(), tmpkey)
-		s3_client.download_file(bucket, key, download_path)
-		print(solve_sudoku(download_path))
+	print(event)
+	if 'Records' in event:
+		for record in event['Records']:
+			if 'eventName' in record:
+				bucket = record['s3']['bucket']['name']
+				key = unquote_plus(record['s3']['object']['key'])
+				tmpkey = key.replace('/', '')
+				download_path = '/tmp/{}{}'.format(uuid.uuid4(), tmpkey)
+				s3_client.download_file(bucket, key, download_path)
+				with open(download_path, 'r') as input_data_file:
+					input_data = input_data_file.read()
+				lines = input_data.split('\n')
+				SUDOKU_SIZE = len(lines)
+				input_matrix = np.matrix([np.array(l.split(), dtype=int) for l in lines])
+				solution, sol_found = solve_sudoku(grid_list = [input_matrix].copy())
+	else:
+		input_numbers = json.loads(event['body'])['input_matrix']
+		SUDOKU_SIZE = int(np.sqrt(len(input_numbers)))
+		input_matrix = np.matrix(np.array(input_numbers).reshape((SUDOKU_SIZE, SUDOKU_SIZE)))
+		solution, sol_found = solve_sudoku(grid_list = [input_matrix].copy())
+	response = {"headers": {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, "statusCode": 200, "body": json.dumps({"input": json.dumps(np.array(input_matrix).ravel().tolist()), "sol_found": json.dumps(sol_found), "solution": json.dumps(np.array(solution).ravel().tolist())})}
+	#response = {"statusCode": 200, "body":{"solution": json.dumps(np.array(solution).ravel().tolist())}}
+	print(response)
+	return response
