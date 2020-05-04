@@ -126,8 +126,9 @@ def lambda_handler(event, context):
 		input_numbers = json.loads(event['body'])['input_matrix']
 		SUDOKU_SIZE = int(np.sqrt(len(input_numbers)))
 		input_matrix = np.matrix(np.array(input_numbers).reshape((SUDOKU_SIZE, SUDOKU_SIZE)))
-		solution, sol_found = solve_sudoku(grid_list = [input_matrix].copy())
-	response = {"headers": {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, "statusCode": 200, "body": json.dumps({"input": json.dumps(np.array(input_matrix).ravel().tolist()), "sol_found": json.dumps(sol_found), "solution": json.dumps(np.array(solution).ravel().tolist())})}
+		input_matrix_saved = [input_matrix.copy()]
+		solution, sol_found = solve_sudoku(grid_list = [input_matrix])
+	response = {"headers": {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, "statusCode": 200, "body": json.dumps({"input": json.dumps(np.array(input_matrix_saved).ravel().tolist()), "sol_found": json.dumps(sol_found), "solution": json.dumps(np.array(solution).ravel().tolist())})}
 	#response = {"statusCode": 200, "body":{"solution": json.dumps(np.array(solution).ravel().tolist())}}
 	print(response)
 	return response
