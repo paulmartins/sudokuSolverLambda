@@ -3,6 +3,7 @@ from lambda_function import lambda_handler
 
 if __name__ == "__main__":
 
+	# S3 event
 	event = {
 		"Records": [
 			{
@@ -12,15 +13,39 @@ if __name__ == "__main__":
 						"name": "sudoku-app"
 					},
 					"object":{
-						"key": "outgoing/sudoku_01.txt"
+						"key": "outgoing/sudoku_04.txt"
 					}
 				}
 			}
 		]
 	}
 
-	event = {'resource': '/solver', 'path': '/solver', 'httpMethod': 'POST', 'headers': {'Accept': '*/*', 'Accept-Encoding': 'gzip, deflate, br', 'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8', 'CloudFront-Forwarded-Proto': 'https', 'CloudFront-Is-Desktop-Viewer': 'true', 'CloudFront-Is-Mobile-Viewer': 'false', 'CloudFront-Is-SmartTV-Viewer': 'false', 'CloudFront-Is-Tablet-Viewer': 'false', 'CloudFront-Viewer-Country': 'GB', 'content-type': 'application/json', 'dnt': '1', 'Host': 'd1zj2gzfll.execute-api.eu-west-2.amazonaws.com', 'origin': 'null', 'sec-fetch-mode': 'cors', 'sec-fetch-site': 'cross-site', 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36', 'Via': '2.0 10614187afbc9547b57f699efd196655.cloudfront.net (CloudFront)', 'X-Amz-Cf-Id': 'dx8ThZ4CJ0_7x9c8VTWr1Fa7xf_6iD-zwPE5b0OSKUJqiRVHPV0dgg==', 'X-Amzn-Trace-Id': 'Root=1-5ea37a9a-40c431011a1e243de2ec7c3e', 'x-api-key': 'GNwuLiYerN9qHCEH5MbLA5W2Jlp3yBkYGn8xVhC8', 'X-Forwarded-For': '80.43.65.108, 70.132.46.70', 'X-Forwarded-Port': '443', 'X-Forwarded-Proto': 'https'}, 'multiValueHeaders': {'Accept': ['*/*'], 'Accept-Encoding': ['gzip, deflate, br'], 'Accept-Language': ['en-GB,en-US;q=0.9,en;q=0.8'], 'CloudFront-Forwarded-Proto': ['https'], 'CloudFront-Is-Desktop-Viewer': ['true'], 'CloudFront-Is-Mobile-Viewer': ['false'], 'CloudFront-Is-SmartTV-Viewer': ['false'], 'CloudFront-Is-Tablet-Viewer': ['false'], 'CloudFront-Viewer-Country': ['GB'], 'content-type': ['application/json'], 'dnt': ['1'], 'Host': ['d1zj2gzfll.execute-api.eu-west-2.amazonaws.com'], 'origin': ['null'], 'sec-fetch-mode': ['cors'], 'sec-fetch-site': ['cross-site'], 'User-Agent': ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36'], 'Via': ['2.0 10614187afbc9547b57f699efd196655.cloudfront.net (CloudFront)'], 'X-Amz-Cf-Id': ['dx8ThZ4CJ0_7x9c8VTWr1Fa7xf_6iD-zwPE5b0OSKUJqiRVHPV0dgg=='], 'X-Amzn-Trace-Id': ['Root=1-5ea37a9a-40c431011a1e243de2ec7c3e'], 'x-api-key': ['GNwuLiYerN9qHCEH5MbLA5W2Jlp3yBkYGn8xVhC8'], 'X-Forwarded-For': ['80.43.65.108, 70.132.46.70'], 'X-Forwarded-Port': ['443'], 'X-Forwarded-Proto': ['https']}, 'requestContext': {'resourceId': '965ii0', 'resourcePath': '/solver', 'httpMethod': 'POST', 'extendedRequestId': 'LhAYJExorPEFnLw=', 'requestTime': '24/Apr/2020:23:47:38 +0000', 'path': '/prod/solver', 'accountId': '779904151522', 'protocol': 'HTTP/1.1', 'stage': 'prod', 'domainPrefix': 'd1zj2gzfll', 'requestTimeEpoch': 1587772058462, 'requestId': 'be2e56c1-14f5-4a14-b375-87be511cece1', 'identity': {'apiKey': 'GNwuLiYerN9qHCEH5MbLA5W2Jlp3yBkYGn8xVhC8', 'apiKeyId': '035rkuvn6d', 'userAgent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36', 'sourceIp': '80.43.65.108'}, 'domainName': 'd1zj2gzfll.execute-api.eu-west-2.amazonaws.com', 'apiId': 'd1zj2gzfll'}, 'body': {'input_matrix': [0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}, 'isBase64Encoded': 'False'}
-	event = {'body': '{"input_matrix":[0,0,0,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}'}
+	# SQS event
+	event = {
+		'Records': [
+			{
+				'messageId': 'f7043941-4222-488b-abc3-0c6ba12fec30', 
+				'receiptHandle': 'AQEBIe1q41BPMgWnUIeysM1rO/lW/F//UuY5Yv8QPts6q/wBkJqiS65StStmZfGQHOJDk1gjPcrVSBJj1rJp/4P/AlfYQJJ4sGFzZNpWAV7S2zlx2JMROcOCqod7f1qqXrfwWs24qyFsM0onEm9wLQsZks8YO9v6clyeXBZpv2ucj//El6yjB2NCHwk1vl4NLH+ABJ/TFDDP/m8L7eBt2JXr/1Ks3Ad3YnVcRfYQI5eVR5CQC7CKplrhEMqk1yfprqtJXQVwrOb4gyG9Pd1FToQIjIkUXUzrFfvMoSvO3xbMHgg7f54Ok8iWFxYaa3yYk3pCRvMEJvNPtVdFHkGlAseU7SEpdI47wU2vUPsZaoyYVp2AsRD5ImrvdITrzt+U2wfFZxejpomEXDpp0jajrJQdbA==', 
+				'body': '{"grid_id":"c6979947-cc86-031e-4505-a848a39c4b90","input_matrix":[1,2,3,4,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}', 
+				'attributes': 
+					{
+						'ApproximateReceiveCount': '4', 
+						'AWSTraceHeader': 'Root=1-5eb17a0f-20b6c8fe7a4166be4b5a035e', 
+						'SentTimestamp': '1588689423109', 
+						'SenderId': 'AROA3LFPI57RFYVSEDXJW:BackplaneAssumeRoleSession', 
+						'ApproximateFirstReceiveTimestamp': '1588689423109'
+					}, 
+				'messageAttributes': {}, 
+				'md5OfBody': 'c5343c743a5a77dba30b40d6a52e70f4', 
+				'eventSource': 'aws:sqs', 
+				'eventSourceARN': 'arn:aws:sqs:eu-west-2:779904151522:sudoku-grid-requested', 
+				'awsRegion': 'eu-west-2'
+			}
+		]	
+	}
+	
+	# API event - deprecated
+	# event = {'body': '{"input_matrix":[0,0,0,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], "grid_id":"aaaa1111222233334444"}'}
 
 	print(json.dumps(event, indent=4))
     lambda_handler(event, {})

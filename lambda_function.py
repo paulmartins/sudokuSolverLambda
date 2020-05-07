@@ -10,6 +10,7 @@ from collections import namedtuple
 from operator import attrgetter
 
 s3_client = boto3.client('s3')
+sqs_client = boto3.client('sqs')
 
 global SUDOKU_SIZE
 SUDOKU_SIZE = 9
@@ -58,15 +59,13 @@ def findNextGrids(cube_constraint, cube_solution, current_input_matrix):
 		new_numbers = np.zeros((SUDOKU_SIZE,SUDOKU_SIZE))
 		for idx, mat in enumerate(cube_constraint):
 			new_numbers += (idx+1)*(1-mat)
-		# only fill one number at a time, longer but avoid 16x16 empty grid issue
-		# where last 2 lines are filled simultaneously
-		single_max_index = np.argmax(new_number_posistion)
-		single_line_idx = int(single_max_index/SUDOKU_SIZE)
-		single_col_idx = single_max_index % SUDOKU_SIZE
-		current_input_matrix[single_line_idx,single_col_idx] = new_numbers[single_line_idx,single_col_idx]
-		# to fill multiple numbers in one go, but need to make sure those 
-		# obeys the sudoku rules
-		# current_input_matrix[new_number_posistion] = new_numbers[new_number_posistion]
+		# fill one number at a time, longer but avoid 16x16 empty grid issue where last 2 lines are filled simultaneously
+		#single_max_index = np.argmax(new_number_posistion)
+		#single_line_idx = int(single_max_index/SUDOKU_SIZE)
+		#single_col_idx = single_max_index % SUDOKU_SIZE
+		#current_input_matrix[single_line_idx,single_col_idx] = new_numbers[single_line_idx,single_col_idx]
+		# fill multiple numbers in one go, but need to make sure those obeys the sudoku rules
+		current_input_matrix[new_number_posistion] = new_numbers[new_number_posistion]
 		grid_output = [current_input_matrix]
 	# if non are fully constrained, find all the possibilities and add them to the list
 	else:
@@ -94,41 +93,118 @@ def solve_sudoku(grid_list):
 	while len(grid_list) > 0:
 		counter +=1
 		current_input_grid = grid_list.pop()
-		if counter % 1000 == 0:
-			print('Iterations:', counter)
 		if 0 in current_input_grid:
 			cube_constraint, cube_solution = propagateConstraint(current_input_grid)
 			grid_list += findNextGrids(cube_constraint, cube_solution, current_input_grid)
+			if counter % 1000 == 0:
+				print('Iterations:', counter, '| Queue length:', len(grid_list), '| Left to find:', 81-np.sum(numberIs(0,cube_solution),axis=None))
 		else:
 			solution_found = True
 			print(f'Solution found in {counter} iterations')
 			break
 	return current_input_grid, solution_found
-	
+
+
+def sqs_handler(record):
+	print(f'Reading event from {record["eventSource"]}')
+	grid_id = json.loads(record['body'])['grid_id']
+	input_numbers = json.loads(record['body'])['input_matrix']
+	SUDOKU_SIZE = int(np.sqrt(len(input_numbers)))
+	input_matrix = np.matrix(np.array(input_numbers).reshape((SUDOKU_SIZE, SUDOKU_SIZE)))
+	return grid_id, input_matrix
+
+
+def s3_handler(record):
+	# Download file from s3 bucket location to local
+	bucket = record['s3']['bucket']['name']
+	key = unquote_plus(record['s3']['object']['key'])
+	print(f'Reading event from {key}')
+	tmpkey = key.replace('/', '')
+	download_path = '/tmp/{}{}'.format(uuid.uuid4(), tmpkey)
+	s3_client.download_file(bucket, key, download_path)
+	grid_id = tmpkey.replace('outgoing', '').replace('.txt','')
+	# Open file
+	with open(download_path, 'r') as input_data_file:
+		input_data = input_data_file.read()
+	# Read the sudoku grid
+	lines = input_data.split('\n')
+	SUDOKU_SIZE = len(lines)
+	input_matrix = np.matrix([np.array(l.split(), dtype=int) for l in lines])
+	return grid_id, input_matrix
+
 
 def lambda_handler(event, context):
-	print(event)
+	print('Event received \n', event)
+	# AWS resources ID
+	all_queue_urls = sqs_client.list_queues()['QueueUrls']
+	dl_queue_url = [url for url in all_queue_urls if 'sudoku-grid-requested-dead-letter' in url][0]
+	dynamodb_table = boto3.resource('dynamodb').Table('sudokuGridRecords')
+	# Read inputs
 	if 'Records' in event:
 		for record in event['Records']:
-			if 'eventName' in record:
-				bucket = record['s3']['bucket']['name']
-				key = unquote_plus(record['s3']['object']['key'])
-				tmpkey = key.replace('/', '')
-				download_path = '/tmp/{}{}'.format(uuid.uuid4(), tmpkey)
-				s3_client.download_file(bucket, key, download_path)
-				with open(download_path, 'r') as input_data_file:
-					input_data = input_data_file.read()
-				lines = input_data.split('\n')
-				SUDOKU_SIZE = len(lines)
-				input_matrix = np.matrix([np.array(l.split(), dtype=int) for l in lines])
-				solution, sol_found = solve_sudoku(grid_list = [input_matrix].copy())
-	else:
-		input_numbers = json.loads(event['body'])['input_matrix']
-		SUDOKU_SIZE = int(np.sqrt(len(input_numbers)))
-		input_matrix = np.matrix(np.array(input_numbers).reshape((SUDOKU_SIZE, SUDOKU_SIZE)))
+			if 'eventSource' in record:
+				grid_id, input_matrix = sqs_handler(record)
+			elif 'eventName' in record:
+				grid_id, input_matrix = s3_handler(record)
+		print(f'Grid ID: {grid_id}')
+		print(input_matrix)	
+		# Call solver
 		input_matrix_saved = [input_matrix.copy()]
 		solution, sol_found = solve_sudoku(grid_list = [input_matrix])
-	response = {"headers": {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, "statusCode": 200, "body": json.dumps({"input": json.dumps(np.array(input_matrix_saved).ravel().tolist()), "sol_found": json.dumps(sol_found), "solution": json.dumps(np.array(solution).ravel().tolist())})}
-	#response = {"statusCode": 200, "body":{"solution": json.dumps(np.array(solution).ravel().tolist())}}
-	print(response)
-	return response
+		# Send solution to DynamoDB
+		if sol_found:
+			print('Solution grid \n', solution)
+			send_sol_to_db = dynamodb_table.put_item(
+				Item = {
+				'grid_id': grid_id, 
+				'input': json.dumps(np.array(input_matrix_saved).ravel().tolist()),
+				'solution': json.dumps(np.array(solution).ravel().tolist()),
+				}
+			)
+			if send_sol_to_db['ResponseMetadata']['HTTPStatusCode'] == 200:
+				print('Solution sent to Dynamodb')
+			else:
+				response = sqs.send_message(
+					QueueUrl=dl_queue_url,
+					DelaySeconds=5,
+					MessageAttributes={
+					'Title': {
+						'DataType': 'String',
+						'StringValue': 'Dynamo DB writing error'
+						},
+					'Author': {
+						'DataType': 'String',
+						'StringValue': 'AWS Lambda sudokuSolver'
+						},
+					},
+					MessageBody=(f'Error in writing solution found for grid {grid_id} into DynamoDB',
+						f'Response: {send_sol_to_db["ResponseMetadata"]}')
+					)
+				print(response['MessageId'])
+		else:
+			print('No solution found')
+			dynamodb_table = boto3.resource('dynamodb').Table('sudokuGridRecords')
+			send_sol_to_db = dynamodb_table.put_item(
+				Item = {
+				'grid_id': grid_id, 
+				'input': json.dumps(np.array(input_matrix_saved).ravel().tolist()),
+				'solution': 'No solution found',
+				}
+			)
+		print('Event processed')
+	else:
+		print('Cannot process event')
+
+	
+
+# Deprecated, used for direct invocation from API Gateway but browser timed out before the hardest grid were solved
+#
+#	def api_handler(event):
+#		print(f'Reading event from API call')
+#		grid_id = json.loads(event['body'])['grid_id']
+#		input_numbers = json.loads(event['body'])['input_matrix']
+#		SUDOKU_SIZE = int(np.sqrt(len(input_numbers)))
+#		input_matrix = np.matrix(np.array(input_numbers).reshape((SUDOKU_SIZE, SUDOKU_SIZE)))
+#		solution, sol_found = solve_sudoku(grid_list = [input_matrix])
+#		return {"headers": {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, "statusCode": 200, "body": json.dumps({"input": json.dumps(np.array(input_matrix_saved).ravel().tolist()), "sol_found": json.dumps(sol_found), "solution": json.dumps(np.array(solution).ravel().tolist())})}
+

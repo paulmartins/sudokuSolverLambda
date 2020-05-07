@@ -14,4 +14,4 @@ if __name__ == '__main__':
 		lines = input_data.split('\n')
 		SUDOKU_SIZE = len(lines)
 		input_matrix = np.matrix([np.array(l.split(), dtype=int) for l in lines])
-		print(lambda_function.solve_sudoku(input_matrix))
+		print(lambda_function.solve_sudoku([input_matrix])[0])

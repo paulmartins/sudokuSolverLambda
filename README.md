@@ -1,4 +1,6 @@
-# Lambda function to solve the sudoku :1234:
+# Lambda function to solve sudoku puzzles :1234:
+
+The solver in `lambda_function.py` combines a constraint-model-based algorithm with backtracking
 
 ## Run locally
 
@@ -12,8 +14,11 @@ pip install -r requirements.txt
 pip install numpy
 ```
 
-Then run `python lambda_function_local.py sudoku_01.txt`
+Then run one of the sudoku grid available in the `data/` folder
 
+```bash
+python lambda_function_local.py data/sudoku_04.txt
+```
 
 ## Build the deployment package
 
