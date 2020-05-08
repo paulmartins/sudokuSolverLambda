@@ -8,7 +8,7 @@ To run on your local machine, first prepare the environment
 
 ```bash
 # build a virutal environment
-python -m venv v-env
+python3.8 -m venv v-env
 . ./v-env/bin/activate
 pip install -r requirements.txt
 pip install numpy
@@ -32,32 +32,39 @@ docker pull amazonlinux
 docker run -ti -v $PWD:/app amazonlinux
 ```
 
-2. Install the relevant python and pip version
+2. Install the relevant python (3.8) and pip version
 
 ```bash
-yum -y install python37 wget zip unzip
+yum -y install wget zip unzip tar gzip gcc openssl-devel bzip2-devel libffi-devel make
+wget https://www.python.org/ftp/python/3.8.2/Python-3.8.2.tgz
+tar xzf Python-3.8.2.tgz
+cd Python-3.8.2
+./configure --enable-optimizations
+make altinstall
+rm Python-3.8.2.tgz
+
 curl -O https://bootstrap.pypa.io/get-pip.py
-python3 get-pip.py --user
+python3.8 get-pip.py --user
 ```
 
 3. Build the deployment package
 
 ```bash
 # Move where the repo has been mounted
-cd app
+cd ../app
 
 # Create and activate a virtual environment
-python3 -m venv v-env
+python3.8 -m venv v-env
 . ./v-env/bin/activate
 
 # Install the libraries (make sure there is no numpy here)
-pip3 install -r requirements.txt
+pip3.8 install -r requirements.txt
 
 # Manually add Numpy to the site-packages
-cd v-env/lib/python3.7/site-packages
-wget https://files.pythonhosted.org/packages/e7/38/f14d6706ae4fa327bdb023ef40b4d902bccd314d886fac4031687a8acc74/numpy-1.18.3-cp37-cp37m-manylinux1_x86_64.whl
-unzip numpy-1.18.3-cp37-cp37m-manylinux1_x86_64.whl
-rm numpy-1.18.3-cp37-cp37m-manylinux1_x86_64.whl
+cd v-env/lib/python3.8/site-packages
+wget https://files.pythonhosted.org/packages/cf/5d/e8198f11dd73a91f7bde15ca88a2b78913fa2b416ae2dc2a6aeafcf4c63d/numpy-1.18.4-cp38-cp38-manylinux1_x86_64.whl
+unzip numpy-1.18.4-cp38-cp38-manylinux1_x86_64.whl
+rm numpy-1.18.4-cp38-cp38-manylinux1_x86_64.whl
 
 # Exit the virtual env
 deactivate

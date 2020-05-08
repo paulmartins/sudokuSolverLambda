@@ -8,8 +8,10 @@ import numpy as np
 from urllib.parse import unquote_plus
 from collections import namedtuple
 from operator import attrgetter
+from trp import Document
 
 s3_client = boto3.client('s3')
+txt_client = boto3.client('textract')
 
 global SUDOKU_SIZE
 SUDOKU_SIZE = 9
@@ -20,17 +22,24 @@ def lambda_handler(event, context):
 	if 'Records' in event:
 		record = event['Records'][0] # only 1 record 
 		if 'eventSource' in record:
-			grid_id, input_matrix = sqs_handler(record)
-		elif 'eventName' in record:
-			grid_id, input_matrix = s3_handler(record)
+			if record['eventSource'] == 'aws:sqs':
+				grid_id, input_matrix = sqs_handler(record)
+			elif record['eventSource'] == 'aws:s3':
+				grid_id, input_matrix = s3_handler(record)
+			else:
+				raise Exception(f"No compatible eventSource found in record: {record['eventSource']}")
 		else:
-			raise Exception(f'No eventName or eventSource found in record {record}')
+			raise Exception(f'No eventSource found in record {record}')
 	else:
 		raise Exception(f'No Records found in event {event}')
 	print(f'Grid ID: {grid_id} \nInput matrix: \n {input_matrix}')
 	# Call solver
 	input_matrix_saved = [input_matrix.copy()]
 	solution, sol_found = solve_sudoku(grid_list = [input_matrix])
+	# try agaon one number at a time in case it fails
+	if not sol_found :
+		print('Try again filling one number at a time')
+		solution, sol_found = solve_sudoku(grid_list = [input_matrix], one_at_a_time = True)
 	# Send solution to DynamoDB
 	dynamodb_table = boto3.resource('dynamodb').Table('sudokuGridRecords')
 	if sol_found:
@@ -68,25 +77,52 @@ def sqs_handler(record):
 
 
 def s3_handler(record):
-	# Download file from s3 bucket location to local
-	bucket = record['s3']['bucket']['name']
-	key = unquote_plus(record['s3']['object']['key'])
-	print(f'Reading event from {key}')
-	tmpkey = key.replace('/', '')
-	download_path = '/tmp/{}{}'.format(uuid.uuid4(), tmpkey)
-	s3_client.download_file(bucket, key, download_path)
-	grid_id = tmpkey.replace('outgoing', '').replace('.txt','')
-	# Open file
-	with open(download_path, 'r') as input_data_file:
-		input_data = input_data_file.read()
-	# Read the sudoku grid
-	lines = input_data.split('\n')
-	SUDOKU_SIZE = len(lines)
-	input_matrix = np.matrix([np.array(l.split(), dtype=int) for l in lines])
+	#process using S3 object
+	response = txt_client.analyze_document(
+		Document=
+		{
+			'S3Object': 
+			{
+				'Bucket': record['s3']['bucket']['name'], 
+				'Name': record['s3']['object']['key'],
+			}
+		},
+		FeatureTypes=["TABLES"]
+	)
+	grid_id = os.path.splitext(record['s3']['object']['key'].replace('incoming/',''))[0]
+	#Get the text blocks
+	doc = Document(response)
+	input_matrix = []
+	for page in doc.pages:
+		# Print tables
+		for table in page.tables:
+			for r, row in enumerate(table.rows):
+				for c, cell in enumerate(row.cells):
+					number = cell.text.replace('NOT_SELECTED,','').replace('SELECTED,','').replace(' ','')
+					if number == '':
+						number = 0
+					try:
+						input_matrix += [int(number)]
+					except:
+						input_matrix += [number]
+					#print("Table[{}][{}] = {}".format(r, c, ttt))
+	if len(input_matrix) == 81 and all([isinstance(i, int) for i in input_matrix]):
+		input_matrix = np.matrix(input_matrix).reshape(9,9)
+	else:
+		dynamodb_table = boto3.resource('dynamodb').Table('sudokuGridRecords')
+		print('Grid not recognized')
+		send_sol_to_db = dynamodb_table.put_item(
+			Item = {
+			'grid_id': grid_id, 
+			'input': json.dumps(np.array(input_matrix).ravel().tolist()),
+			'solution': 'Grid could not be read',
+			}
+		)
+		raise Exception(f'Sudoku not detected in picture {grid_id}')
 	return grid_id, input_matrix
 
 
-def solve_sudoku(grid_list):
+def solve_sudoku(grid_list, one_at_a_time=False):
 	counter = 0
 	solution_found = False
 	while len(grid_list) > 0:
@@ -96,7 +132,7 @@ def solve_sudoku(grid_list):
 			cube_constraint, cube_solution = propagateConstraint(current_input_grid)
 			if gridIsNotFeasible(cube_solution):
 				break
-			grid_list += findNextGrids(cube_constraint, cube_solution, current_input_grid)
+			grid_list += findNextGrids(cube_constraint, cube_solution, current_input_grid, one_at_a_time)
 			if counter % 1000 == 0:
 				print('Iterations:', counter, '| Queue length:', len(grid_list), '| Left to find:', 81-np.sum(numberIs(0,cube_solution),axis=None))
 		else:
@@ -147,7 +183,7 @@ def propagateConstraint(current_input_matrix):
 	return cube_constraint, cube_solution
 
 
-def findNextGrids(cube_constraint, cube_solution, current_input_matrix):
+def findNextGrids(cube_constraint, cube_solution, current_input_matrix, one_at_a_time):
 	# check which numbers are fully constraint (8) and still unknown
 	new_number_posistion = np.logical_and(np.sum(cube_constraint, axis=0)==(SUDOKU_SIZE-1), numberIs(0, cube_solution)==0)
 	# if at least one is fully constrained, fill the grid with its value
@@ -156,13 +192,15 @@ def findNextGrids(cube_constraint, cube_solution, current_input_matrix):
 		new_numbers = np.zeros((SUDOKU_SIZE,SUDOKU_SIZE))
 		for idx, mat in enumerate(cube_constraint):
 			new_numbers += (idx+1)*(1-mat)
-		# fill one number at a time, longer but avoid 16x16 empty grid issue where last 2 lines are filled simultaneously
-		#single_max_index = np.argmax(new_number_posistion)
-		#single_line_idx = int(single_max_index/SUDOKU_SIZE)
-		#single_col_idx = single_max_index % SUDOKU_SIZE
-		#current_input_matrix[single_line_idx,single_col_idx] = new_numbers[single_line_idx,single_col_idx]
-		# fill multiple numbers in one go, but need to make sure those obeys the sudoku rules
-		current_input_matrix[new_number_posistion] = new_numbers[new_number_posistion]
+		if one_at_a_time:
+			# fill one number at a time, longer but avoid 16x16 empty grid issue where last 2 lines are filled simultaneously
+			single_max_index = np.argmax(new_number_posistion)
+			single_line_idx = int(single_max_index/SUDOKU_SIZE)
+			single_col_idx = single_max_index % SUDOKU_SIZE
+			current_input_matrix[single_line_idx,single_col_idx] = new_numbers[single_line_idx,single_col_idx]
+		else:
+			# fill multiple numbers in one go, but need to make sure those obeys the sudoku rules
+			current_input_matrix[new_number_posistion] = new_numbers[new_number_posistion]
 		grid_output = [current_input_matrix]
 	# if non are fully constrained, find all the possibilities and add them to the list
 	else:
@@ -207,4 +245,28 @@ def numberIs(i, cube_solution):
 #		input_matrix = np.matrix(np.array(input_numbers).reshape((SUDOKU_SIZE, SUDOKU_SIZE)))
 #		solution, sol_found = solve_sudoku(grid_list = [input_matrix])
 #		return {"headers": {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, "statusCode": 200, "body": json.dumps({"input": json.dumps(np.array(input_matrix_saved).ravel().tolist()), "sol_found": json.dumps(sol_found), "solution": json.dumps(np.array(solution).ravel().tolist())})}
+
+
+
+# Deprecated, used for direct invocation of lambda from S3 outgoing bucket (decoded grid)
+#
+#def s3_handler(record):
+#	# Download file from s3 bucket location to local
+#	bucket = record['s3']['bucket']['name']
+#	key = unquote_plus(record['s3']['object']['key'])
+#	print(f'Reading event from {key}')
+#	tmpkey = key.replace('/', '')
+#	download_path = '/tmp/{}{}'.format(uuid.uuid4(), tmpkey)
+#	s3_client.download_file(bucket, key, download_path)
+#	grid_id = tmpkey.replace('outgoing', '').replace('.txt','')
+#	# Open file
+#	with open(download_path, 'r') as input_data_file:
+#		input_data = input_data_file.read()
+#	# Read the sudoku grid
+#	lines = input_data.split('\n')
+#	SUDOKU_SIZE = len(lines)
+#	input_matrix = np.matrix([np.array(l.split(), dtype=int) for l in lines])
+#	return grid_id, input_matrix
+
+
 

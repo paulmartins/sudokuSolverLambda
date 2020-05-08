@@ -13,7 +13,7 @@ if __name__ == "__main__":
 						"name": "sudoku-app"
 					},
 					"object":{
-						"key": "outgoing/sudoku_04.txt"
+						"key": "incoming/e0688ed0-e178-f0c9-7d3a-e167663facc9.png"
 					}
 				}
 			}
