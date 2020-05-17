@@ -39,7 +39,7 @@ def lambda_handler(event, context):
 	# try agaon one number at a time in case it fails
 	if not sol_found :
 		print('Try again filling one number at a time')
-		solution, sol_found = solve_sudoku(grid_list = [input_matrix], one_at_a_time = True)
+		solution, sol_found = solve_sudoku(grid_list = [input_matrix_saved.copy()], one_at_a_time = True)
 	# Send solution to DynamoDB
 	dynamodb_table = boto3.resource('dynamodb').Table('sudokuGridRecords')
 	if sol_found:
@@ -131,8 +131,9 @@ def solve_sudoku(grid_list, one_at_a_time=False):
 		if 0 in current_input_grid:
 			cube_constraint, cube_solution = propagateConstraint(current_input_grid)
 			if gridIsNotFeasible(cube_solution):
-				break
-			grid_list += findNextGrids(cube_constraint, cube_solution, current_input_grid, one_at_a_time)
+				continue
+			else:
+				grid_list += findNextGrids(cube_constraint, cube_solution, current_input_grid, one_at_a_time)
 			if counter % 1000 == 0:
 				print('Iterations:', counter, '| Queue length:', len(grid_list), '| Left to find:', 81-np.sum(numberIs(0,cube_solution),axis=None))
 		else:
